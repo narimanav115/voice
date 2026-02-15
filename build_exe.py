@@ -1,11 +1,11 @@
 """
 Build script for VoiceTranslator Windows distribution.
 
-Instead of PyInstaller (which fails with PyTorch), this creates a 
-portable Python distribution with all dependencies pre-installed.
+Uses the SYSTEM Python (from GitHub Actions setup-python) to install 
+all packages into a target directory via `pip install --target`, then
+bundles that with the Python embeddable package.
 
 Result: A folder with embedded Python + all packages + launcher.
-User just runs VoiceTranslator.exe (a small launcher) or run.bat.
 """
 
 import subprocess
@@ -19,7 +19,6 @@ from pathlib import Path
 # Python embeddable version to use
 PYTHON_VERSION = "3.10.11"
 PYTHON_EMBED_URL = f"https://www.python.org/ftp/python/{PYTHON_VERSION}/python-{PYTHON_VERSION}-embed-amd64.zip"
-GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py"
 
 
 def download_file(url, dest):
@@ -39,6 +38,7 @@ def build():
     dist_dir = Path("dist")
     app_dir = dist_dir / "VoiceTranslator"
     python_dir = app_dir / "python"
+    site_packages = python_dir / "Lib" / "site-packages"
     
     # Clean previous build
     if app_dir.exists():
@@ -47,6 +47,7 @@ def build():
     
     app_dir.mkdir(parents=True, exist_ok=True)
     python_dir.mkdir(parents=True, exist_ok=True)
+    site_packages.mkdir(parents=True, exist_ok=True)
 
     # Step 1: Download Python embeddable
     print("[1/6] Downloading Python embeddable package...")
@@ -60,47 +61,57 @@ def build():
     with zipfile.ZipFile(str(embed_zip), 'r') as z:
         z.extractall(str(python_dir))
 
-    # Step 2: Enable pip in embedded Python
-    print("\n[2/6] Setting up pip...")
+    # Step 2: Configure embedded Python to use site-packages
+    print("\n[2/6] Configuring embedded Python...")
     
     # Edit python310._pth to enable site-packages
     pth_files = list(python_dir.glob("python*._pth"))
     if pth_files:
         pth_file = pth_files[0]
-        content = pth_file.read_text()
-        # Uncomment 'import site' line
-        content = content.replace("#import site", "import site")
-        # Add Lib/site-packages
-        if "Lib\\site-packages" not in content:
-            content += "\nLib\\site-packages\n"
-        pth_file.write_text(content)
+        # Rewrite the _pth file completely
+        pth_file.write_text(
+            "python310.zip\n"
+            ".\n"
+            "Lib\\site-packages\n"
+            "import site\n"
+        )
         print(f"  Updated {pth_file.name}")
-    
-    # Download and run get-pip.py
-    get_pip_path = dist_dir / "get-pip.py"
-    if not get_pip_path.exists():
-        download_file(GET_PIP_URL, str(get_pip_path))
-    
-    python_exe = python_dir / "python.exe"
-    
-    print("  Installing pip...")
-    subprocess.run(
-        [str(python_exe), str(get_pip_path), "--no-warn-script-location"],
-        cwd=str(python_dir),
-        check=True
-    )
+    else:
+        print("  WARNING: No ._pth file found!")
 
-    # Step 3: Install dependencies
-    print("\n[3/6] Installing dependencies (this takes 10-20 minutes)...")
+    # Step 3: Install dependencies using SYSTEM Python's pip 
+    # with --target pointing to our embedded Python's site-packages
+    print("\n[3/6] Installing dependencies via system pip --target (10-20 min)...")
+    print(f"  System Python: {sys.executable}")
+    print(f"  Target: {site_packages.absolute()}")
     
     req_file = Path("requirements.txt").absolute()
+    
+    # First, upgrade system pip
     subprocess.run(
-        [str(python_exe), "-m", "pip", "install", 
-         "-r", str(req_file),
-         "--no-warn-script-location"],
-        cwd=str(python_dir),
+        [sys.executable, "-m", "pip", "install", "--upgrade", "pip"],
         check=True
     )
+    
+    # Install all requirements into the target directory
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install",
+         "-r", str(req_file),
+         "--target", str(site_packages.absolute()),
+         "--no-warn-script-location"],
+        check=True
+    )
+    
+    # Verify key packages were installed
+    print("\n  Verifying installed packages:")
+    key_packages = ['torch', 'transformers', 'TTS', 'faster_whisper', 'PyQt6', 'numpy']
+    for pkg in key_packages:
+        pkg_dir = site_packages / pkg
+        if pkg_dir.exists():
+            size = sum(f.stat().st_size for f in pkg_dir.rglob('*') if f.is_file()) / (1024*1024)
+            print(f"    [OK] {pkg} ({size:.0f} MB)")
+        else:
+            print(f"    [!!] {pkg} - NOT FOUND")
 
     # Step 4: Copy application files
     print("\n[4/6] Copying application files...")

@@ -67,7 +67,7 @@ if exist "VoiceTranslator.spec" (
     echo Using default configuration
     pyinstaller --name="VoiceTranslator" ^
       --windowed ^
-      --onefile ^
+      --onedir ^
       --add-data "config.py;." ^
       --hidden-import="PyQt6" ^
       --hidden-import="faster_whisper" ^
@@ -76,6 +76,7 @@ if exist "VoiceTranslator.spec" (
       --collect-all="TTS" ^
       --collect-all="transformers" ^
       --collect-all="faster_whisper" ^
+      --collect-all="torch" ^
       main.py
 )
 
@@ -90,22 +91,25 @@ REM Создание релизной папки
 echo.
 echo Creating release package...
 mkdir release 2>nul
-copy dist\VoiceTranslator.exe release\
+xcopy /E /I dist\VoiceTranslator release\VoiceTranslator
 copy README.md release\
 copy QUICKSTART.md release\
 echo Models will be downloaded on first run (approx. 7-8 GB). > release\FIRST_RUN.txt
 echo Ensure ffmpeg is installed: choco install ffmpeg >> release\FIRST_RUN.txt
+echo. >> release\FIRST_RUN.txt
+echo To run: Open VoiceTranslator folder and run VoiceTranslator.exe >> release\FIRST_RUN.txt
 
 echo.
 echo ========================================
 echo ✓ Build completed successfully!
 echo ========================================
 echo.
-echo Executable location: release\VoiceTranslator.exe
+echo Application location: release\VoiceTranslator\
+echo Main executable: release\VoiceTranslator\VoiceTranslator.exe
 echo.
 echo You can now:
-echo 1. Test the executable: release\VoiceTranslator.exe
-echo 2. Distribute the 'release' folder
+echo 1. Test the executable: release\VoiceTranslator\VoiceTranslator.exe
+echo 2. Distribute the entire 'release' folder
 echo.
 echo Note: First run will download models (~7-8 GB)
 echo.

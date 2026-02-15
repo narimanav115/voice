@@ -44,7 +44,7 @@ jobs:
       run: |
         pyinstaller --name="VoiceTranslator" ^
           --windowed ^
-          --onefile ^
+          --onedir ^
           --add-data "config.py;." ^
           --hidden-import="PyQt6" ^
           --hidden-import="PyQt6.QtCore" ^
@@ -54,26 +54,41 @@ jobs:
           --hidden-import="transformers" ^
           --hidden-import="TTS" ^
           --hidden-import="TTS.api" ^
+          --hidden-import="TTS.utils" ^
           --hidden-import="torch" ^
+          --hidden-import="torchaudio" ^
           --hidden-import="librosa" ^
           --hidden-import="soundfile" ^
           --hidden-import="ffmpeg" ^
+          --hidden-import="numpy" ^
+          --hidden-import="scipy" ^
           --collect-all="TTS" ^
           --collect-all="transformers" ^
           --collect-all="faster_whisper" ^
+          --collect-all="torch" ^
+          --collect-all="torchaudio" ^
+          --collect-submodules="torch" ^
+          --collect-submodules="transformers" ^
+          --copy-metadata="torch" ^
+          --copy-metadata="transformers" ^
+          --copy-metadata="TTS" ^
           --exclude-module="matplotlib" ^
           --exclude-module="tkinter" ^
+          --exclude-module="IPython" ^
+          --exclude-module="jupyter" ^
           main.py
       shell: cmd
       
     - name: Create release archive
       run: |
         mkdir release
-        copy dist\VoiceTranslator.exe release\
+        xcopy /E /I dist\VoiceTranslator release\VoiceTranslator
         copy README.md release\
         copy QUICKSTART.md release\
         copy requirements.txt release\
-        echo "Models will be downloaded on first run" > release\MODELS_INFO.txt
+        echo Models will be downloaded on first run (approx. 7-8 GB) > release\FIRST_RUN.txt
+        echo. >> release\FIRST_RUN.txt
+        echo To run: Open VoiceTranslator folder and run VoiceTranslator.exe >> release\FIRST_RUN.txt
       shell: cmd
       
     - name: Upload artifact

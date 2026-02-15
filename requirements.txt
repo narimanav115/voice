@@ -1,0 +1,50 @@
+# GUI
+PyQt6>=6.6.0
+PyQt6-Qt6>=6.6.0
+
+# ASR (Automatic Speech Recognition)
+faster-whisper>=0.10.0
+openai-whisper>=20231117
+
+# Translation
+transformers>=4.36.0
+sentencepiece>=0.1.99
+torch>=2.1.0
+sacremoses>=0.1.0
+
+# TTS (Text-to-Speech)
+TTS>=0.22.0  # Coqui TTS (includes XTTS-v2)
+
+# Audio Processing
+ffmpeg-python>=0.2.0
+librosa>=0.10.1
+pydub>=0.25.1
+soundfile>=0.12.1
+audioread>=3.0.0
+resampy>=0.4.2
+
+# Voice Conversion (RVC)
+faiss-cpu>=1.7.4  # Use faiss-gpu if CUDA available
+praat-parselmouth>=0.4.3
+pyworld>=0.3.2
+torchcrepe>=0.0.20
+
+# Utilities
+numpy>=1.24.0
+scipy>=1.11.0
+tqdm>=4.66.0
+pyyaml>=6.0
+
+# GPU Support (optional, comment out if not using GPU)
+# For NVIDIA CUDA:
+# torch>=2.1.0+cu118
+# torchaudio>=2.1.0+cu118
+# faiss-gpu>=1.7.4
+
+# Model Management
+huggingface-hub>=0.19.0
+tokenizers>=0.15.0
+
+# Additional utilities
+python-dateutil>=2.8.2
+pillow>=10.0.0

@@ -1,0 +1,4 @@
+Models will be downloaded on first run (approx. 7-8 GB).
+Ensure ffmpeg is installed: brew install ffmpeg
+
+To run: ./VoiceTranslator

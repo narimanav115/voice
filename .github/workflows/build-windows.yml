@@ -69,9 +69,6 @@ jobs:
           --collect-all="torchaudio" ^
           --collect-submodules="torch" ^
           --collect-submodules="transformers" ^
-          --copy-metadata="torch" ^
-          --copy-metadata="transformers" ^
-          --copy-metadata="TTS" ^
           --exclude-module="matplotlib" ^
           --exclude-module="tkinter" ^
           --exclude-module="IPython" ^

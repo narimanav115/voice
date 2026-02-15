@@ -39,22 +39,42 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
 
-    - name: Generate PyInstaller spec and build
-      run: |
-        python build_exe.py
+    - name: Build standalone app
+      run: python build_exe.py
       shell: cmd
+
+    - name: Verify build size
+      run: |
+        $folder = "dist\VoiceTranslator"
+        if (Test-Path $folder) {
+          $size = (Get-ChildItem -Recurse $folder | Measure-Object -Property Length -Sum).Sum / 1MB
+          Write-Host "Build size: $([math]::Round($size, 1)) MB"
+          if ($size -lt 100) {
+            Write-Host "::error::Build too small ($([math]::Round($size, 1)) MB). Expected 500+ MB."
+            exit 1
+          }
+        } else {
+          Write-Host "::error::Build folder not found!"
+          exit 1
+        }
+      shell: pwsh
+
+    - name: Create ZIP archive
+      run: |
+        Compress-Archive -Path "dist\VoiceTranslator" -DestinationPath "VoiceTranslator-Windows.zip"
+      shell: pwsh
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: VoiceTranslator-Windows
-        path: dist/VoiceTranslator.exe
+        path: VoiceTranslator-Windows.zip
         
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v1
       with:
-        files: dist/VoiceTranslator.exe
+        files: VoiceTranslator-Windows.zip
         draft: false
         prerelease: false
       env:

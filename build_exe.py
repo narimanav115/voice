@@ -1,138 +1,192 @@
 """
 Build script for creating a standalone VoiceTranslator distribution.
-Creates a folder with EXE + all dependencies (onedir mode).
-This is the only reliable way to bundle PyTorch + TTS + transformers.
+Manually locates site-packages and forces inclusion of all dependencies.
 """
 
 import subprocess
 import sys
 import os
+import site
 import json
+from pathlib import Path
 
 
-def get_installed_packages():
-    """Get set of installed package names using pip list."""
-    result = subprocess.run(
-        [sys.executable, '-m', 'pip', 'list', '--format=json'],
-        capture_output=True, text=True
-    )
-    if result.returncode != 0:
-        print("WARNING: Could not get pip list, will pass all flags unconditionally")
-        return None
+def find_site_packages():
+    """Find the site-packages directory."""
+    # Try multiple approaches
+    for sp in site.getsitepackages():
+        if os.path.isdir(sp):
+            print(f"  Found site-packages: {sp}")
+            return sp
     
-    packages = json.loads(result.stdout)
-    return {pkg['name'].lower().replace('-', '_') for pkg in packages}
+    # Fallback: derive from sys.executable
+    if sys.platform == 'win32':
+        sp = os.path.join(os.path.dirname(sys.executable), 'Lib', 'site-packages')
+    else:
+        sp = os.path.join(os.path.dirname(os.path.dirname(sys.executable)), 
+                          'lib', f'python{sys.version_info.major}.{sys.version_info.minor}', 
+                          'site-packages')
+    
+    if os.path.isdir(sp):
+        print(f"  Found site-packages (fallback): {sp}")
+        return sp
+    
+    raise RuntimeError("Could not find site-packages directory!")
 
 
-def get_pyinstaller_args():
-    """Generate PyInstaller arguments based on installed packages."""
-
-    installed = get_installed_packages()
-
-    # Packages to collect-all: (pip_name, lookup_name for pip list)
-    collect_all_candidates = [
-        ('TTS', 'tts'),
-        ('transformers', 'transformers'),
-        ('faster_whisper', 'faster_whisper'),
-        ('torch', 'torch'),
-        ('torchaudio', 'torchaudio'),
-        ('tokenizers', 'tokenizers'),
-        ('huggingface_hub', 'huggingface_hub'),
-        ('ctranslate2', 'ctranslate2'),
-        ('sentencepiece', 'sentencepiece'),
-        ('librosa', 'librosa'),
-        ('soundfile', 'soundfile'),
-        ('scipy', 'scipy'),
-        ('numpy', 'numpy'),
-        ('PyQt6', 'pyqt6'),
-        ('onnxruntime', 'onnxruntime'),
-    ]
-
-    hidden_imports = [
-        'PyQt6', 'PyQt6.QtCore', 'PyQt6.QtGui', 'PyQt6.QtWidgets', 'PyQt6.sip',
+def get_package_dirs(site_pkg):
+    """Find actual package directories in site-packages."""
+    # Critical packages that MUST be included
+    critical_packages = [
+        'torch', 'torchaudio', 'torchvision',
+        'TTS',
+        'transformers',
         'faster_whisper',
-        'transformers', 'transformers.models', 'transformers.utils',
-        'TTS', 'TTS.api', 'TTS.tts', 'TTS.tts.configs', 'TTS.tts.models',
-        'TTS.utils', 'TTS.vocoder',
-        'torch', 'torch.nn', 'torch.utils', 'torch.cuda',
-        'torchaudio',
-        'librosa', 'librosa.core', 'librosa.feature', 'librosa.effects', 'librosa.util',
-        'soundfile', 'ffmpeg',
-        'numpy', 'numpy.core',
-        'scipy', 'scipy.signal', 'scipy.fft',
+        'tokenizers',
+        'huggingface_hub',
+        'ctranslate2',
+        'sentencepiece',
+        'librosa',
+        'soundfile', '_soundfile_data',
+        'scipy',
+        'numpy', 'numpy.libs',
+        'PyQt6',
+        'onnxruntime',
+        'ffmpeg',
         'pydub',
-        'huggingface_hub', 'tokenizers', 'sentencepiece',
-        'ctranslate2', 'onnxruntime',
-        'resampy', 'audioread', 'numba',
+        'resampy',
+        'audioread',
+        'numba',
+        'llvmlite',
+        'safetensors',
+        'yaml', 'pyyaml',
+        'regex',
+        'filelock',
+        'tqdm',
+        'requests', 'urllib3', 'certifi', 'charset_normalizer', 'idna',
+        'packaging',
+        'fsspec',
+        'coqpit',
+        'gruut',
+        'trainer',
     ]
-
-    excludes = [
-        'matplotlib', 'tkinter', 'IPython', 'jupyter',
-        'notebook', 'pytest', 'sphinx', 'docutils', 'pygments',
-    ]
-
-    args = []
-
-    for pip_name, lookup_name in collect_all_candidates:
-        # If we couldn't get pip list, include everything
-        if installed is None or lookup_name in installed:
-            args.extend(['--collect-all', pip_name])
-            args.extend(['--collect-submodules', pip_name])
-            print(f"  [OK] {pip_name}")
+    
+    found = []
+    sep = ';' if sys.platform == 'win32' else ':'
+    
+    for pkg in critical_packages:
+        pkg_path = os.path.join(site_pkg, pkg)
+        if os.path.isdir(pkg_path):
+            found.append((pkg_path, pkg))
+            print(f"  [OK] {pkg} ({_dir_size_mb(pkg_path):.1f} MB)")
         else:
-            print(f"  [SKIP] {pip_name} - not installed")
+            # Try lowercase
+            pkg_lower = pkg.lower()
+            pkg_path_lower = os.path.join(site_pkg, pkg_lower)
+            if os.path.isdir(pkg_path_lower):
+                found.append((pkg_path_lower, pkg_lower))
+                print(f"  [OK] {pkg_lower} ({_dir_size_mb(pkg_path_lower):.1f} MB)")
+            else:
+                print(f"  [--] {pkg} - not found")
+    
+    # Also find .libs directories (e.g., torch.libs, numpy.libs)
+    for item in os.listdir(site_pkg):
+        if item.endswith('.libs') and os.path.isdir(os.path.join(site_pkg, item)):
+            full_path = os.path.join(site_pkg, item)
+            if not any(f[1] == item for f in found):
+                found.append((full_path, item))
+                print(f"  [OK] {item} (binary libs, {_dir_size_mb(full_path):.1f} MB)")
+    
+    return found
 
-    for imp in hidden_imports:
-        args.extend(['--hidden-import', imp])
 
-    for exc in excludes:
-        args.extend(['--exclude-module', exc])
-
-    return args
+def _dir_size_mb(path):
+    """Get directory size in MB."""
+    total = 0
+    for dirpath, _, filenames in os.walk(path):
+        for f in filenames:
+            total += os.path.getsize(os.path.join(dirpath, f))
+    return total / (1024 * 1024)
 
 
 def build():
     print("=" * 60)
-    print("  VoiceTranslator — Standalone Build")
+    print("  VoiceTranslator - Standalone Build")
     print("=" * 60)
     print()
 
-    # Use --onedir (reliable for large ML projects)
-    base_args = [
+    # Step 1: Find site-packages
+    print("[1/4] Locating site-packages...")
+    site_pkg = find_site_packages()
+    print()
+
+    # Step 2: Find package directories
+    print("[2/4] Finding package directories...")
+    packages = get_package_dirs(site_pkg)
+    print(f"\n  Found {len(packages)} packages to include\n")
+
+    # Step 3: Build PyInstaller command
+    print("[3/4] Building PyInstaller command...")
+    
+    sep = ';' if sys.platform == 'win32' else ':'
+
+    cmd = [
         sys.executable, '-m', 'PyInstaller',
         '--noconfirm',
         '--clean',
         '--name=VoiceTranslator',
         '--onedir',
         '--windowed',
-        '--add-data', f'config.py{os.pathsep}.',
-        '--add-data', f'src{os.pathsep}src',
+        f'--add-data=config.py{sep}.',
+        f'--add-data=src{sep}src',
+        f'--paths={site_pkg}',
     ]
 
-    if os.path.exists('icon.ico'):
-        base_args.extend(['--icon', 'icon.ico'])
+    # Add each package as --add-data
+    for pkg_path, pkg_name in packages:
+        cmd.append(f'--add-data={pkg_path}{sep}{pkg_name}')
+    
+    # Hidden imports
+    hidden = [
+        'PyQt6', 'PyQt6.QtCore', 'PyQt6.QtGui', 'PyQt6.QtWidgets', 'PyQt6.sip',
+        'faster_whisper', 'transformers', 'TTS', 'TTS.api',
+        'torch', 'torch.nn', 'torch.utils',
+        'librosa', 'soundfile', 'ffmpeg', 'numpy', 'scipy', 'pydub',
+        'huggingface_hub', 'tokenizers', 'sentencepiece', 'ctranslate2',
+    ]
+    for h in hidden:
+        cmd.extend(['--hidden-import', h])
 
-    print("[1/3] Scanning installed packages...")
-    extra_args = get_pyinstaller_args()
+    # Excludes
+    for exc in ['matplotlib', 'tkinter', 'IPython', 'jupyter', 'notebook', 'pytest']:
+        cmd.extend(['--exclude-module', exc])
+
+    if os.path.exists('icon.ico'):
+        cmd.extend(['--icon', 'icon.ico'])
+
+    cmd.append('main.py')
+
+    # Print estimated size
+    total_pkg_size = sum(_dir_size_mb(p) for p, _ in packages)
+    print(f"  Estimated output size: ~{total_pkg_size:.0f} MB")
     print()
 
-    cmd = base_args + extra_args + ['main.py']
-
-    print("[2/3] Building (this takes 10-20 minutes)...")
+    # Step 4: Run build
+    print("[4/4] Running PyInstaller (10-30 minutes)...")
     print()
 
     result = subprocess.run(cmd, cwd=os.getcwd())
 
     if result.returncode != 0:
-        print("\nERROR: Build failed!")
+        print("\nERROR: PyInstaller failed!")
         sys.exit(1)
 
     # Verify output
     dist_folder = os.path.join('dist', 'VoiceTranslator')
-    exe_path = os.path.join(dist_folder, 'VoiceTranslator.exe')
+    exe_name = 'VoiceTranslator.exe' if sys.platform == 'win32' else 'VoiceTranslator'
+    exe_path = os.path.join(dist_folder, exe_name)
 
-    if os.path.exists(exe_path):
-        # Calculate total folder size
+    if os.path.exists(dist_folder):
         total_size = 0
         for dirpath, _, filenames in os.walk(dist_folder):
             for f in filenames:
@@ -140,22 +194,30 @@ def build():
         size_mb = total_size / (1024 * 1024)
 
         print()
-        print("[3/3] Build complete!")
+        print("BUILD COMPLETE!")
         print(f"  Folder: {dist_folder}")
-        print(f"  EXE:    {exe_path}")
-        print(f"  Total:  {size_mb:.0f} MB")
+        print(f"  Total size: {size_mb:.0f} MB")
         print()
 
         if size_mb < 100:
-            print(f"WARNING: Build is only {size_mb:.0f} MB — something is missing!")
-            print("  Expected: 500+ MB")
+            print(f"ERROR: Build is only {size_mb:.0f} MB - dependencies missing!")
+            
+            # Debug: list what's in dist
+            print("\nContents of dist/VoiceTranslator/:")
+            for item in sorted(os.listdir(dist_folder)):
+                full = os.path.join(dist_folder, item)
+                if os.path.isdir(full):
+                    print(f"  [DIR] {item} ({_dir_size_mb(full):.1f} MB)")
+                else:
+                    s = os.path.getsize(full) / (1024 * 1024)
+                    print(f"  [FILE] {item} ({s:.1f} MB)")
+            
             sys.exit(1)
         else:
-            print("  Looks correct!")
-            print()
-            print("  To run: dist/VoiceTranslator/VoiceTranslator.exe")
+            print(f"  Size OK! ({size_mb:.0f} MB)")
+            print(f"\n  To run: {exe_path}")
     else:
-        print("ERROR: EXE not found at", exe_path)
+        print("ERROR: dist folder not found!")
         sys.exit(1)
 
 

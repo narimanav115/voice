@@ -23,11 +23,10 @@ jobs:
         python-version: '3.10'
         
     - name: Install FFmpeg
-      run: |
-        choco install ffmpeg -y
+      run: choco install ffmpeg -y
         
     - name: Cache pip packages
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ~\AppData\Local\pip\Cache
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
@@ -39,66 +38,23 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install pyinstaller
-        
-    - name: Build executable with PyInstaller
+
+    - name: Generate PyInstaller spec and build
       run: |
-        pyinstaller --name="VoiceTranslator" ^
-          --windowed ^
-          --onedir ^
-          --add-data "config.py;." ^
-          --hidden-import="PyQt6" ^
-          --hidden-import="PyQt6.QtCore" ^
-          --hidden-import="PyQt6.QtGui" ^
-          --hidden-import="PyQt6.QtWidgets" ^
-          --hidden-import="faster_whisper" ^
-          --hidden-import="transformers" ^
-          --hidden-import="TTS" ^
-          --hidden-import="TTS.api" ^
-          --hidden-import="TTS.utils" ^
-          --hidden-import="torch" ^
-          --hidden-import="torchaudio" ^
-          --hidden-import="librosa" ^
-          --hidden-import="soundfile" ^
-          --hidden-import="ffmpeg" ^
-          --hidden-import="numpy" ^
-          --hidden-import="scipy" ^
-          --collect-all="TTS" ^
-          --collect-all="transformers" ^
-          --collect-all="faster_whisper" ^
-          --collect-all="torch" ^
-          --collect-all="torchaudio" ^
-          --collect-submodules="torch" ^
-          --collect-submodules="transformers" ^
-          --exclude-module="matplotlib" ^
-          --exclude-module="tkinter" ^
-          --exclude-module="IPython" ^
-          --exclude-module="jupyter" ^
-          main.py
+        python build_exe.py
       shell: cmd
-      
-    - name: Create release archive
-      run: |
-        mkdir release
-        xcopy /E /I dist\VoiceTranslator release\VoiceTranslator
-        copy README.md release\
-        copy QUICKSTART.md release\
-        copy requirements.txt release\
-        echo Models will be downloaded on first run (approx. 7-8 GB) > release\FIRST_RUN.txt
-        echo. >> release\FIRST_RUN.txt
-        echo To run: Open VoiceTranslator folder and run VoiceTranslator.exe >> release\FIRST_RUN.txt
-      shell: cmd
-      
+
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: VoiceTranslator-Windows
-        path: release/
+        path: dist/VoiceTranslator.exe
         
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v1
       with:
-        files: release/*
+        files: dist/VoiceTranslator.exe
         draft: false
         prerelease: false
       env:

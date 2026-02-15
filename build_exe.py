@@ -7,24 +7,31 @@ This is the only reliable way to bundle PyTorch + TTS + transformers.
 import subprocess
 import sys
 import os
-import importlib
+import json
 
 
-def is_importable(module_name):
-    """Check if a module can be imported."""
-    try:
-        importlib.import_module(module_name)
-        return True
-    except (ImportError, ModuleNotFoundError):
-        return False
+def get_installed_packages():
+    """Get set of installed package names using pip list."""
+    result = subprocess.run(
+        [sys.executable, '-m', 'pip', 'list', '--format=json'],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        print("WARNING: Could not get pip list, will pass all flags unconditionally")
+        return None
+    
+    packages = json.loads(result.stdout)
+    return {pkg['name'].lower().replace('-', '_') for pkg in packages}
 
 
 def get_pyinstaller_args():
     """Generate PyInstaller arguments based on installed packages."""
 
-    # Packages to collect-all (only if importable)
+    installed = get_installed_packages()
+
+    # Packages to collect-all: (pip_name, lookup_name for pip list)
     collect_all_candidates = [
-        ('TTS', 'TTS'),
+        ('TTS', 'tts'),
         ('transformers', 'transformers'),
         ('faster_whisper', 'faster_whisper'),
         ('torch', 'torch'),
@@ -37,7 +44,7 @@ def get_pyinstaller_args():
         ('soundfile', 'soundfile'),
         ('scipy', 'scipy'),
         ('numpy', 'numpy'),
-        ('PyQt6', 'PyQt6'),
+        ('PyQt6', 'pyqt6'),
         ('onnxruntime', 'onnxruntime'),
     ]
 
@@ -66,16 +73,15 @@ def get_pyinstaller_args():
 
     args = []
 
-    # Collect only installed packages
-    for pip_name, import_name in collect_all_candidates:
-        if is_importable(import_name):
+    for pip_name, lookup_name in collect_all_candidates:
+        # If we couldn't get pip list, include everything
+        if installed is None or lookup_name in installed:
             args.extend(['--collect-all', pip_name])
             args.extend(['--collect-submodules', pip_name])
             print(f"  [OK] {pip_name}")
         else:
-            print(f"  [SKIP] {pip_name} — not installed")
+            print(f"  [SKIP] {pip_name} - not installed")
 
-    # Hidden imports (safe to pass even if not installed)
     for imp in hidden_imports:
         args.extend(['--hidden-import', imp])
 
